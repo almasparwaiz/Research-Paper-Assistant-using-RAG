@@ -1,6 +1,6 @@
 import os
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -21,14 +21,26 @@ app.add_middleware(
 # Active Groq Model ID
 MODEL = "openai/gpt-oss-20b"
 
-# In-memory session cache for extracted PDF text (lightweight for serverless execution)
+# In-memory session cache for extracted PDF text
 SESSION_DOCUMENTS = {}
 
 def get_groq_client():
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=500, directive="GROQ_API_KEY is not set in environment variables.")
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY is not set in environment variables.")
     return Groq(api_key=api_key)
+
+# Mount public folder for static assets (CSS, JS, etc.)
+if os.path.exists("public"):
+    app.mount("/static", StaticFiles(directory="public"), name="static")
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_frontend():
+    index_path = "public/index.html"
+    if os.path.exists(index_path):
+        with open(index_path, "r", encoding="utf-8") as f:
+            return f.read()
+    return "<h3>Frontend index.html not found in public folder.</h3>"
 
 @app.post("/api/upload")
 async def upload_pdf(file: UploadFile = File(...)):
@@ -46,7 +58,7 @@ async def upload_pdf(file: UploadFile = File(...)):
         if not extracted_text.strip():
             return JSONResponse(status_code=400, content={"error": "Could not extract text from PDF."})
             
-        SESSION_DOCUMENTS["current_doc"] = extracted_text[:30000] # Safe character window for token limits
+        SESSION_DOCUMENTS["current_doc"] = extracted_text[:30000]
         return {"success": True, "filename": file.filename, "message": "PDF uploaded and processed successfully."}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
@@ -60,7 +72,6 @@ async def chat_with_paper(data: QueryRequest):
         client = get_groq_client()
         document_context = SESSION_DOCUMENTS.get("current_doc", "No research document uploaded yet.")
         
-        # Single user prompt structure to prevent Groq templating mismatch errors
         prompt = f"""You are an expert Research Paper Assistant. Answer the user question accurately using ONLY the provided research paper text below. If the answer is not present in the document, state that clearly.
 
 Research Document Context:
@@ -79,7 +90,6 @@ Question: {data.question}"""
     except Exception as e:
         return {"reply": f"Error: {str(e)}"}
 
-# Root fallback for health check
 @app.get("/api/health")
 async def health_check():
     return {"status": "active", "model": MODEL}
