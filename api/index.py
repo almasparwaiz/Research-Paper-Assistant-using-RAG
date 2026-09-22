@@ -28,20 +28,138 @@ def get_groq_client():
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
-    # Multiple fallback paths to find index.html reliably on Vercel
-    possible_paths = [
-        os.path.join(os.getcwd(), "public", "index.html"),
-        os.path.join(os.path.dirname(__file__), "..", "public", "index.html"),
-        "/var/task/public/index.html",
-        "public/index.html"
-    ]
-    
-    for path in possible_paths:
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                return f.read()
-                
-    return f"<h3>Frontend index.html not found. Checked paths: {possible_paths}</h3>"
+    # Directly embedded HTML to completely eliminate Vercel file-path & missing asset errors
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Research Paper Assistant (RAG)</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background-color: #0f172a; color: #f8fafc; height: 100vh; display: flex; justify-content: center; align-items: center; }
+        .app-container { display: flex; width: 92vw; max-width: 1100px; height: 85vh; background: #1e293b; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4); border: 1px solid #334155; overflow: hidden; }
+        .sidebar { width: 320px; background: #0f172a; border-right: 1px solid #334155; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+        .brand { display: flex; align-items: center; gap: 12px; font-size: 18px; font-weight: bold; color: #38bdf8; }
+        .upload-card { border: 2px dashed #475569; padding: 20px; border-radius: 10px; text-align: center; background: #1e293b; cursor: pointer; transition: border 0.2s; }
+        .upload-card:hover { border-color: #38bdf8; }
+        .upload-card input { display: none; }
+        .upload-status { font-size: 13px; color: #34d399; margin-top: 8px; word-break: break-all; }
+        .chat-main { flex: 1; display: flex; flex-direction: column; background: #1e293b; }
+        .chat-header { padding: 18px 24px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }
+        .chat-box { flex: 1; padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+        .message { display: flex; gap: 12px; max-width: 80%; }
+        .bot-message { align-self: flex-start; }
+        .user-message { align-self: flex-end; flex-direction: row-reverse; }
+        .avatar { width: 35px; height: 35px; border-radius: 50%; background: #334155; display: flex; align-items: center; justify-content: center; color: #38bdf8; flex-shrink: 0; }
+        .user-message .avatar { background: #0284c7; color: white; }
+        .content { background: #334155; padding: 12px 16px; border-radius: 10px; font-size: 14px; line-height: 1.5; color: #e2e8f0; white-space: pre-wrap; }
+        .user-message .content { background: #0284c7; color: white; }
+        .chat-input-area { padding: 20px 24px; border-top: 1px solid #334155; display: flex; gap: 12px; }
+        input[type="text"] { flex: 1; padding: 12px 16px; background: #0f172a; border: 1px solid #475569; border-radius: 8px; color: white; font-size: 14px; outline: none; }
+        input[type="text"]:focus { border-color: #38bdf8; }
+        button.send-btn { background: #0284c7; border: none; color: white; padding: 0 20px; border-radius: 8px; cursor: pointer; transition: background 0.2s; }
+        button.send-btn:hover { background: #0369a1; }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="brand"><i class="fa-solid fa-file-pdf"></i> Research RAG AI</div>
+            <p style="font-size: 13px; color: #94a3b8; line-height: 1.4;">Upload a research paper PDF below, then ask deep analytical questions.</p>
+            
+            <label class="upload-card" id="dropZone">
+                <i class="fa-solid fa-cloud-arrow-up" style="font-size: 24px; color: #38bdf8; margin-bottom: 8px;"></i>
+                <div style="font-size: 14px; font-weight: 600;">Click to upload PDF</div>
+                <input type="file" id="pdfFile" accept=".pdf">
+            </label>
+            <div id="uploadStatus" class="upload-status">No document loaded.</div>
+        </aside>
+
+        <main class="chat-main">
+            <header class="chat-header">
+                <h3 style="font-size: 16px;">Groq Powered Research Assistant</h3>
+                <span style="font-size: 12px; background: #065f46; color: #34d399; padding: 4px 10px; border-radius: 20px;">Online</span>
+            </header>
+
+            <div id="chatBox" class="chat-box">
+                <div class="message bot-message">
+                    <div class="avatar"><i class="fa-solid fa-robot"></i></div>
+                    <div class="content">Welcome! Upload your research paper PDF on the left panel to begin.</div>
+                </div>
+            </div>
+
+            <form id="chatForm" class="chat-input-area">
+                <input type="text" id="userInput" placeholder="Ask a question about the research paper..." autocomplete="off" required>
+                <button type="submit" class="send-btn"><i class="fa-solid fa-paper-plane"></i></button>
+            </form>
+        </main>
+    </div>
+
+    <script>
+        const pdfFile = document.getElementById('pdfFile');
+        const uploadStatus = document.getElementById('uploadStatus');
+        const chatForm = document.getElementById('chatForm');
+        const userInput = document.getElementById('userInput');
+        const chatBox = document.getElementById('chatBox');
+
+        pdfFile.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            uploadStatus.textContent = `Uploading ${file.name}...`;
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (data.success) {
+                    uploadStatus.textContent = `Loaded: ${data.filename}`;
+                } else {
+                    uploadStatus.textContent = `Error: ${data.error}`;
+                }
+            } catch (err) {
+                uploadStatus.textContent = 'Upload failed connection error.';
+            }
+        });
+
+        chatForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const question = userInput.value.trim();
+            if (!question) return;
+            appendMessage(question, 'user');
+            userInput.value = '';
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            const loadingId = 'loading-' + Date.now();
+            appendMessage('Analyzing document context...', 'bot', loadingId);
+
+            try {
+                const res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question })
+                });
+                const data = await res.json();
+                document.getElementById(loadingId).remove();
+                appendMessage(data.reply, 'bot');
+            } catch (err) {
+                document.getElementById(loadingId).remove();
+                appendMessage('Failed to fetch response from server.', 'bot');
+            }
+            chatBox.scrollTop = chatBox.scrollHeight;
+        });
+
+        function appendMessage(text, sender, customId = '') {
+            const div = document.createElement('div');
+            div.className = `message ${sender === 'user' ? 'user-message' : 'bot-message'}`;
+            if (customId) div.id = customId;
+            div.innerHTML = `<div class="avatar"><i class="fa-solid fa-${sender === 'user' ? 'user' : 'robot'}"></i></div><div class="content">${text}</div>`;
+            chatBox.appendChild(div);
+        }
+    </script>
+</body>
+</html>"""
 
 @app.post("/api/upload")
 async def upload_pdf(request: Request):
