@@ -26,17 +26,22 @@ def get_groq_client():
         raise HTTPException(status_code=500, detail="GROQ_API_KEY is not set.")
     return Groq(api_key=api_key)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(BASE_DIR)
-PUBLIC_DIR = os.path.join(PROJECT_ROOT, "public")
-
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
-    index_path = os.path.join(PUBLIC_DIR, "index.html")
-    if os.path.exists(index_path):
-        with open(index_path, "r", encoding="utf-8") as f:
-            return f.read()
-    return f"<h3>Frontend index.html not found at path: {index_path}</h3>"
+    # Multiple fallback paths to find index.html reliably on Vercel
+    possible_paths = [
+        os.path.join(os.getcwd(), "public", "index.html"),
+        os.path.join(os.path.dirname(__file__), "..", "public", "index.html"),
+        "/var/task/public/index.html",
+        "public/index.html"
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read()
+                
+    return f"<h3>Frontend index.html not found. Checked paths: {possible_paths}</h3>"
 
 @app.post("/api/upload")
 async def upload_pdf(request: Request):
