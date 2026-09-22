@@ -1,7 +1,6 @@
 import os
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from groq import Groq
@@ -30,17 +29,18 @@ def get_groq_client():
         raise HTTPException(status_code=500, detail="GROQ_API_KEY is not set in environment variables.")
     return Groq(api_key=api_key)
 
-# Mount public folder for static assets (CSS, JS, etc.)
-if os.path.exists("public"):
-    app.mount("/static", StaticFiles(directory="public"), name="static")
+# Get absolute path relative to this file to make it work seamlessly on Vercel serverless
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(BASE_DIR)
+PUBLIC_DIR = os.path.join(PROJECT_ROOT, "public")
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
-    index_path = "public/index.html"
+    index_path = os.path.join(PUBLIC_DIR, "index.html")
     if os.path.exists(index_path):
         with open(index_path, "r", encoding="utf-8") as f:
             return f.read()
-    return "<h3>Frontend index.html not found in public folder.</h3>"
+    return f"<h3>Frontend index.html not found at path: {index_path}</h3>"
 
 @app.post("/api/upload")
 async def upload_pdf(file: UploadFile = File(...)):
